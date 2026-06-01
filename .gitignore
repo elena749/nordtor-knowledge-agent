@@ -1,0 +1,19 @@
+# Secrets - NIEMALS committen
+.env
+.env.local
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# n8n / Node (falls spaeter Orchestrierung dazukommt)
+node_modules/
+.n8n/
+
+# OS / Editor
+.DS_Store
+.vscode/
+*.swp
