@@ -1,4 +1,4 @@
-# Secrets - NIEMALS committen
+# Secrets - NEVER commit
 .env
 .env.local
 *.key
@@ -9,7 +9,10 @@ __pycache__/
 .venv/
 venv/
 
-# n8n / Node (falls spaeter Orchestrierung dazukommt)
+# Generated embedding index (regenerable via build_index.py)
+index/
+
+# n8n / Node (in case orchestration is added later)
 node_modules/
 .n8n/
 
