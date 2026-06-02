@@ -82,6 +82,25 @@ The evaluation measures **two things separately** — this separation is the cor
 
 ---
 
+## Limitations
+
+**Circular validation.** Tickets and articles are both synthetic and share an origin
+(both derive, via a neutral situations list, from the same author). The evaluation
+therefore measures the agent's ability to bridge a *language gap* — everyday wording
+vs. technical wording — under controlled conditions. It does **not** measure robustness
+to genuinely independent, real-world customer language, because no real, unseen
+distribution is involved. Generating tickets in a separate session (with no access to
+the articles) reduces lexical leakage, but does not remove this circularity.
+
+This is a deliberate trade-off: synthetic data is what makes the ground truth clean and
+the two metrics (retrieval, escalation) measurable at all. Synthetic data validates the
+*mechanism*; production data validates *robustness*. These are two distinct validation
+stages, in that order. With real deployment data, the first validation step would be to
+replay actual (anonymized) customer tickets against the knowledge base and compare
+retrieval accuracy to this synthetic baseline.
+
+---
+
 ## ROI math
 
 <!-- README Punkt 7 — expliziter Header: Volume × Cost = Monthly Value, Payback. Alle Parameter als geschätzt/synthetisch markieren. -->
