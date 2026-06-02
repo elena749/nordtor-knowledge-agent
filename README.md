@@ -64,19 +64,30 @@ A production deployment over a real, company-wide knowledge base would require *
 
 ---
 
-## Evaluation results
+Evaluation results
+The evaluation measures two things separately, and this separation is the core of the build:
 
-The evaluation measures **two things separately**, and this separation is the core of the build:
+Retrieval: Does the system find the correct article despite the language gap? (Baseline: BM25 keyword matching vs. embedding retrieval.)
+Hallucination / honest escalation: When no article covers the case, does the system escalate, or invent a solution? This is the harder, agentic evaluation.
 
-- **Retrieval:** Does the agent find the correct article despite the language gap? (Baseline: naive keyword matching vs. the agent.)
-- **Hallucination / honest escalation:** When no article covers the case, does the agent escalate, or does it invent a solution? This is the harder, agentic evaluation.
+Retrieval: baseline vs. embedding (v1, raw retrieval, no reasoning layer)
+Measured over 25 covered gold-standard tickets (customer-language tickets, each mapped to one correct technician article). Top-1 results retrieved per method; Recall@3 = fraction where the correct article is in the top 3; MRR = mean reciprocal rank of the correct article.
+MethodRecall@3MRRBM25 (keyword baseline)0.6400.648Embedding (text-embedding-3-small)0.7200.532
+Reading the result. The two methods split, and the split is the finding. Embedding wins on Recall@3 (0.72 vs 0.64): semantic search gets the correct article into the top 3 more often than keyword matching, which is the core thesis, meaning bridges a vocabulary gap that exact words cannot. But BM25 wins on MRR (0.648 vs 0.532): when keyword overlap exists, BM25 ranks the correct article higher (often rank 1), whereas embedding more often places it within the top 3 but lower down. In short: embedding is more robust (finds it more often), BM25 is more sharp (ranks it higher when it works at all). Neither dominates on raw retrieval alone, which is precisely the motivation for a reasoning layer on top.
+Where embedding fails (per-ticket). Failures are not random. Two clusters fell outside the top 5:
 
-| Metric | Baseline (keyword) | Agent v1 | Agent v2 |
-|---|---|---|---|
-| Retrieval accuracy | _TBD_ | _TBD_ | _TBD_ |
-| Correct escalation (uncovered cases) | _TBD_ | _TBD_ | _TBD_ |
+The sensor cluster (S-201 x2, S-202, S-203): the confusion-pair and lightbarrier cases. This is the documented low-signal failure (see FAILURE_LOG.md, 2026-06-02): the distinguishing signal is a small part of an article that shares bulk vocabulary with wrong answers, so cosine similarity cannot resolve it.
+Phrasing-specific misses (A-102, A-103, A-104): for each of these articles, one of its two ticket phrasings retrieved correctly (rank 1 to 3) while the other fell out of the top 5. The failure is tied to specific customer phrasings, not to the article, which is a distinct lever from the sensor problem.
 
-> **Status of evaluation:** Initial single-ticket retrieval testing is complete; full quantitative scoring (Recall@3, MRR, baseline vs. system across all 28 gold-standard cases) is pending. Early finding: raw vector retrieval bridges the gap cleanly on high-signal cases (an acoustic symptom ticket retrieved the correct article at rank 1, score well above the field) but **fails on low-signal confusion cases**. For the sensor confusion pair, the correct article fell outside the top 5, with mechanical articles ranking above it. Diagnosis confirmed the articles are correctly embedded (querying with article-native vocabulary surfaces them at rank 1 to 2); the failure is specific to the customer-to-technician vocabulary gap when the distinguishing signal is a small part of an article that shares bulk vocabulary with wrong answers. See `FAILURE_LOG.md` (2026-06-02). This directly motivates the deferred retrieval layers below.
+A critical consequence for the architecture: several correct articles fell outside the top 5. Any reasoning or reranking layer can only judge candidates it is shown, so the retrieval step must surface a wider candidate set (k well above 5) or the reasoning layer never sees the right answer to reason about.
+Escalation: similarity threshold cannot separate escalate from answer
+For the 3 escalation cases (no correct article exists, the system should escalate, not answer), the top-1 cosine similarity was compared against the covered-case range:
+Top-1 cosineCovered cases (range)min 0.391, max 0.670, mean 0.532Escalation E1 (truck damage)0.480Escalation E2 (fire brigade)0.584Escalation E3 (ice)0.422
+The escalation scores sit inside the covered range, and E2 (0.584) scores higher than many tickets that do have a correct answer. There is no similarity cutoff that separates "should escalate" from "should answer", the distributions overlap completely. This is direct evidence that honest escalation cannot be done by similarity score alone; it requires the agentic reasoning step (a model reading the candidate and judging genuine relevance), which is the harder evaluation this build targets. See FAILURE_LOG.md (2026-06-02, escalation entry).
+Next: agentic layer (v2)
+The v1 numbers above are the baseline. v2 adds (a) wider candidate retrieval so failing articles are at least available, and (b) an agentic reasoning step that judges relevance and decides answer-vs-escalate. v2 will be measured against this same gold standard, and the lift reported here.
+
+Metricv1 (raw retrieval)v2 (agentic)Recall@3 (embedding)0.720TBDMRR (embedding)0.532TBDCorrect escalationnot separable by thresholdTBD
 
 ---
 
