@@ -2,7 +2,7 @@
 
 An agentic technical-support assistant that helps service technicians find the right repair instructions in seconds, in the language they actually use, not the error codes buried in the manuals.
 
-> **Status:** Work in progress. Sections marked _TBD_ are pending the evaluation and instrumentation phases. Numbers will be added once they are measured, not before.
+> **Status:** Work in progress. Sections marked _TBD_ are pending the cost-instrumentation and go-to-market phases. Numbers are added once measured, not before.
 
 ---
 
@@ -39,7 +39,7 @@ The loop:
 1. **Ticket arrives** (pre-classified, customer language). Upstream classification/scoring is assumed to have already happened.
 2. **Embed + vector search**, the ticket is embedded and matched against the article index by *meaning*, not by keyword. This is what bridges the language gap.
 3. **Model reads candidates**, the top candidates (not all articles) are placed in context. The model reads them.
-4. **Model decides**, *the one agentic step.* The model judges for itself: is this enough? Then it either searches again, answers, or escalates.
+4. **Model decides**, *the one agentic step.* The model judges for itself: is this enough? Then it either answers or escalates.
 5. **Answer** (grounded in the articles, with a cited source) **or escalate** (no match, does not invent).
 
 ### Deliberate scope boundaries
@@ -54,7 +54,7 @@ Three things are intentionally **out of scope**, each for a reason:
 
 ## Cost & latency profile
 
-_TBD, pending instrumentation. Will report cost per 1000 runs, p50/p95 latency, and which part of the call dominates the bill._
+_TBD, pending instrumentation. Will report cost per 1000 runs, p50/p95 latency, and which part of the call dominates the bill. Note: the agent makes two model calls per ticket (one embedding for retrieval, one judging call), so the judging call is expected to dominate both cost and latency._
 
 ---
 
@@ -64,30 +64,70 @@ A production deployment over a real, company-wide knowledge base would require *
 
 ---
 
-Evaluation results
-The evaluation measures two things separately, and this separation is the core of the build:
+## Evaluation results
 
-Retrieval: Does the system find the correct article despite the language gap? (Baseline: BM25 keyword matching vs. embedding retrieval.)
-Hallucination / honest escalation: When no article covers the case, does the system escalate, or invent a solution? This is the harder, agentic evaluation.
+The evaluation measures **two things separately**, and this separation is the core of the build:
 
-Retrieval: baseline vs. embedding (v1, raw retrieval, no reasoning layer)
-Measured over 25 covered gold-standard tickets (customer-language tickets, each mapped to one correct technician article). Top-1 results retrieved per method; Recall@3 = fraction where the correct article is in the top 3; MRR = mean reciprocal rank of the correct article.
-MethodRecall@3MRRBM25 (keyword baseline)0.6400.648Embedding (text-embedding-3-small)0.7200.532
-Reading the result. The two methods split, and the split is the finding. Embedding wins on Recall@3 (0.72 vs 0.64): semantic search gets the correct article into the top 3 more often than keyword matching, which is the core thesis, meaning bridges a vocabulary gap that exact words cannot. But BM25 wins on MRR (0.648 vs 0.532): when keyword overlap exists, BM25 ranks the correct article higher (often rank 1), whereas embedding more often places it within the top 3 but lower down. In short: embedding is more robust (finds it more often), BM25 is more sharp (ranks it higher when it works at all). Neither dominates on raw retrieval alone, which is precisely the motivation for a reasoning layer on top.
-Where embedding fails (per-ticket). Failures are not random. Two clusters fell outside the top 5:
+- **Retrieval:** Does the system find the correct article despite the language gap? (Baseline: BM25 keyword matching vs. embedding retrieval.)
+- **Hallucination / honest escalation:** When no article covers the case, does the system escalate, or invent a solution? This is the harder, agentic evaluation.
 
-The sensor cluster (S-201 x2, S-202, S-203): the confusion-pair and lightbarrier cases. This is the documented low-signal failure (see FAILURE_LOG.md, 2026-06-02): the distinguishing signal is a small part of an article that shares bulk vocabulary with wrong answers, so cosine similarity cannot resolve it.
-Phrasing-specific misses (A-102, A-103, A-104): for each of these articles, one of its two ticket phrasings retrieved correctly (rank 1 to 3) while the other fell out of the top 5. The failure is tied to specific customer phrasings, not to the article, which is a distinct lever from the sensor problem.
+### Retrieval: baseline vs. embedding (v1, raw retrieval, no reasoning layer)
 
-A critical consequence for the architecture: several correct articles fell outside the top 5. Any reasoning or reranking layer can only judge candidates it is shown, so the retrieval step must surface a wider candidate set (k well above 5) or the reasoning layer never sees the right answer to reason about.
-Escalation: similarity threshold cannot separate escalate from answer
+Measured over 25 covered gold-standard tickets (customer-language tickets, each mapped to one correct technician article). Recall@3 = fraction where the correct article is in the top 3; MRR = mean reciprocal rank of the correct article.
+
+| Method | Recall@3 | MRR |
+|---|---|---|
+| BM25 (keyword baseline) | 0.640 | 0.648 |
+| Embedding (text-embedding-3-small) | 0.720 | 0.532 |
+
+**Reading the result.** The two methods split, and the split is the finding. Embedding wins on Recall@3 (0.72 vs 0.64): semantic search gets the correct article into the top 3 more often than keyword matching, which is the core thesis, meaning bridges a vocabulary gap that exact words cannot. But BM25 wins on MRR (0.648 vs 0.532): when keyword overlap exists, BM25 ranks the correct article higher (often rank 1), whereas embedding more often places it within the top 3 but lower down. In short: embedding is more **robust** (finds it more often), BM25 is more **sharp** (ranks it higher when it works at all). Neither dominates on raw retrieval alone, which is precisely the motivation for a reasoning layer on top.
+
+**Where embedding fails (per-ticket).** Failures are not random. Two clusters fell outside the top 5:
+
+- The **sensor cluster** (S-201 x2, S-202, S-203): the confusion-pair and lightbarrier cases. This is the documented low-signal failure (see `FAILURE_LOG.md`, 2026-06-02): the distinguishing signal is a small part of an article that shares bulk vocabulary with wrong answers, so cosine similarity cannot resolve it.
+- **Phrasing-specific misses** (A-102, A-103, A-104): for each of these articles, one of its two ticket phrasings retrieved correctly (rank 1 to 3) while the other fell out of the top 5. The failure is tied to specific customer phrasings, not to the article, which is a distinct lever from the sensor problem.
+
+A critical consequence for the architecture: several correct articles fell **outside the top 5**. Any reasoning or reranking layer can only judge candidates it is shown, so the retrieval step must surface a **wider candidate set** (k well above 5) or the reasoning layer never sees the right answer to reason about.
+
+### Escalation: similarity threshold cannot separate escalate from answer
+
 For the 3 escalation cases (no correct article exists, the system should escalate, not answer), the top-1 cosine similarity was compared against the covered-case range:
-Top-1 cosineCovered cases (range)min 0.391, max 0.670, mean 0.532Escalation E1 (truck damage)0.480Escalation E2 (fire brigade)0.584Escalation E3 (ice)0.422
-The escalation scores sit inside the covered range, and E2 (0.584) scores higher than many tickets that do have a correct answer. There is no similarity cutoff that separates "should escalate" from "should answer", the distributions overlap completely. This is direct evidence that honest escalation cannot be done by similarity score alone; it requires the agentic reasoning step (a model reading the candidate and judging genuine relevance), which is the harder evaluation this build targets. See FAILURE_LOG.md (2026-06-02, escalation entry).
-Next: agentic layer (v2)
-The v1 numbers above are the baseline. v2 adds (a) wider candidate retrieval so failing articles are at least available, and (b) an agentic reasoning step that judges relevance and decides answer-vs-escalate. v2 will be measured against this same gold standard, and the lift reported here.
 
-Metricv1 (raw retrieval)v2 (agentic)Recall@3 (embedding)0.720TBDMRR (embedding)0.532TBDCorrect escalationnot separable by thresholdTBD
+| | Top-1 cosine |
+|---|---|
+| Covered cases (range) | min 0.391, max 0.670, mean 0.532 |
+| Escalation E1 (truck damage) | 0.480 |
+| Escalation E2 (fire brigade) | 0.584 |
+| Escalation E3 (ice) | 0.422 |
+
+The escalation scores sit **inside** the covered range, and E2 (0.584) scores higher than many tickets that do have a correct answer. There is no similarity cutoff that separates "should escalate" from "should answer", the distributions overlap completely. This is direct evidence that **honest escalation cannot be done by similarity score alone**; it requires the agentic reasoning step (a model reading the candidate and judging genuine relevance), which is the harder evaluation this build targets. See `FAILURE_LOG.md` (2026-06-02, escalation entry).
+
+### Agentic layer (v2): results
+
+v2 adds (a) wider candidate retrieval (top 10) so failing articles are at least available to judge, and (b) an agentic reasoning step that reads the candidates, decides which single article genuinely addresses the fault, and returns ESCALATE if none does. Measured against the same 28 gold-standard cases.
+
+| Metric | v1 (raw retrieval) | v2 (agentic) |
+|---|---|---|
+| Covered accuracy | 0.720 (Recall@3) | 0.760 (Recall@1) |
+| Correct escalation (3 cases) | not separable by threshold | 3 / 3 |
+
+**Reading the result.** Two things stand out, and the second matters more than the first.
+
+First, covered accuracy rose from 0.72 to 0.76 *while the metric got harder*. The v1 baseline (0.72) is Recall@3, credit for the correct article being anywhere in the top 3. The v2 agent commits to a single answer, so its 0.76 is effectively Recall@1, a stricter bar. Beating a top-3 number with a top-1 commitment is a larger improvement than the raw +0.04 suggests.
+
+Second, and this is the agentic layer's real justification: escalation went from impossible to perfect. A similarity threshold caught **0 of 3** escalation cases (the scores sat inside the covered range, see above). The agent caught **3 of 3**, each for the correct reason (no article covers a bent lock from impact, a broken-open door, or a frozen door). This is a capability that did not exist before the reasoning step, not an incremental gain.
+
+**Where the agent still fails (6 of 25 covered), and why.** The failures are not random; they fall into three known causes:
+
+- **Retrieval-bound (3 cases: the sensor cluster S-201, S-202, S-203).** The correct article was not surfaced by retrieval, so the agent never had it to choose. These are the documented low-signal failures (see `FAILURE_LOG.md`); the agent cannot fix a retrieval omission. This is the architectural bound below.
+- **Over-strict escalation (2 cases: A-104).** The agent escalated when a correct article (A-104) did exist, judging that none of the candidates genuinely fit. This is the flip side of the strict-judge prompt that makes escalation work: strict enough to abstain honestly on the 3 true escalation cases, occasionally too strict on a borderline real match. This is a recall-versus-escalation balance, prompt-tunable, but tuning it risks the perfect escalation score (see note below).
+- **Ambiguous-ticket judgment (1 case: A-102 read as A-101).** A genuinely ambiguous ticket ("opens only after pressing two or three times") read as "drive does not start" rather than "drive is slow". A judgment error on an ambiguous input.
+
+**A deliberate trade-off, not yet "fixed".** The two A-104 over-escalations could be recovered by loosening the judging prompt, but the same strictness that causes them is what produced the perfect 3/3 escalation result. Loosening to catch A-104 risks breaking escalation. The current balance (perfect honest abstention, slightly over-strict on one borderline article) is arguably the right one to ship for a support tool, where inventing a wrong answer is worse than escalating a real one. Documented as a deliberate balance rather than chased.
+
+### Architecture note: what the agentic layer can and cannot fix
+
+The agentic reasoning layer judges the retrieved candidates; it decides which genuinely addresses the fault, or escalates if none does. A direct consequence, confirmed in testing: the agent can only judge candidates retrieval gives it. On low-signal confusion cases (the sensor pair), the correct article fell outside even the top 10, so the agent never saw it and could not select it. This bounds the layer cleanly: the agent improves *judgment over a candidate set*, but it cannot compensate for a *retrieval* failure that omits the right answer. Fixing those cases requires improving retrieval representation (chunking) or re-scoring (reranking), not the reasoning step. See `FAILURE_LOG.md` (2026-06-02) and `BREAK_HYPOTHESES.md`.
 
 ---
 
@@ -113,9 +153,9 @@ All parameters below are **estimated / synthetic**, for illustration:
 
 ## What I would improve next
 
-The retrieval finding above gives a concrete reason for the techniques deferred in `BREAK_HYPOTHESES.md`: **wider candidate retrieval** (the correct article fell outside the top 5, so any reranking or reasoning layer must see more candidates or it never gets the right answer to work with), **chunking** (so a distinguishing section becomes its own vector instead of being diluted in a whole-article average), and a **reranking or agentic reasoning step** over the wider candidate set.
+The retrieval finding gives a concrete reason for the techniques deferred in `BREAK_HYPOTHESES.md`: **chunking** (so a distinguishing section becomes its own vector instead of being diluted in a whole-article average) and **reranking** (re-score candidates on the distinguishing detail). These target the retrieval-bound failures (the sensor cluster), the one class the agentic layer provably cannot fix on its own.
 
-Also on the list: the stopping condition (preventing the agent from looping too long or giving up too early), and stress-testing the ingestion assumption above.
+Also on the list: tuning the recall-versus-escalation balance (the A-104 over-escalation), the stopping condition for the agent loop, and stress-testing the ingestion assumption above.
 
 ---
 
