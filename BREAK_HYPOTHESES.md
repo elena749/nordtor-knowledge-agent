@@ -10,6 +10,8 @@ multi-topic documents, sub-article chunking (by section header) might improve
 retrieval precision. Not relevant at current article length; would need
 revisiting if the knowledge base grew to longer documents.
 
+**Update (2026-06-02):** The chunking and reranking hypotheses now have empirical support. Top-10 retrieval failed to surface the correct article on the confusion pair (S-201 absent from top 10), confirming that retrieval-depth alone is insufficient and a representation or re-scoring change is needed. Still deferred from this build, but no longer hypothetical: the eval demonstrated the need.
+
 ## Retrieval scaling: vector vs. keyword advantage at small N
 At ~15 articles the retrieval advantage of vector search over keyword matching
 is small. The architecture targets real document scale (hundreds). **Untested:**
