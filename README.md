@@ -8,7 +8,7 @@ An agentic technical-support assistant that helps service technicians find the r
 
 ## What it does
 
-When a fault report comes in from a customer in everyday language ("the door makes a grinding noise and stops halfway"), the agent searches an internal knowledge base written in technician language ("error code E-204: roller wear on the upper guide rail"), decides on its own whether it has found a genuine match, and either returns a grounded repair instruction or honestly escalates when no article covers the case, instead of inventing an answer.
+When a fault report comes in from a customer in everyday language ("the door makes a grinding noise and stops halfway"), the agent searches an internal knowledge base written in technician language ("error code M-303: roller wear on the upper guide rail"), decides on its own whether it has found a genuine match, and either returns a grounded repair instruction or honestly escalates when no article covers the case, instead of inventing an answer.
 
 **A note on language:** The knowledge-base articles and the test tickets are written in **German**, because the customer is a German manufacturer with German technicians and German customers. The language gap the agent has to bridge is *within* German (technician wording vs. customer wording), which is the realistic and harder case. All documentation, code, and commit messages are in **English** for portability.
 
@@ -54,7 +54,7 @@ Three things are intentionally **out of scope**, each for a reason:
 
 ## Cost & latency profile
 
-_TBD, pending instrumentation. Will report cost per 1000 runs, p50/p95 latency, and which part of the call dominates the bill. Note: the agent makes two model calls per ticket (one embedding for retrieval, one judging call), so the judging call is expected to dominate both cost and latency._
+_Instrumentation built (`benchmark_agent.py`); numbers pending a measured run. Will report cost per 1000 runs, p50/p95 latency, and which part of the call dominates the bill. Note: the agent makes two model calls per ticket (one embedding for retrieval, one judging call), so the judging call is expected to dominate both cost and latency._
 
 ---
 
@@ -65,6 +65,8 @@ A production deployment over a real, company-wide knowledge base would require *
 ---
 
 ## Evaluation results
+
+> _Results below are recorded in this README and `FAILURE_LOG.md`; they are not committed as separate result files._
 
 The evaluation measures **two things separately**, and this separation is the core of the build:
 
